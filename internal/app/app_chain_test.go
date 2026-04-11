@@ -197,9 +197,8 @@ func TestChain_RateLimitRejectsExcessFromSameIP(t *testing.T) {
 }
 
 func TestChain_RateLimitKeysByXForwardedFor(t *testing.T) {
-	// Two clients arriving through the same Fly edge (shared RemoteAddr)
-	// must be keyed independently by X-Forwarded-For. Without XFF keying,
-	// the second client would inherit the first's exhausted bucket.
+	// Non-Fly fallback: two clients arriving through a reverse proxy
+	// (no Fly-Client-IP) must be keyed independently by X-Forwarded-For.
 	cfg := chainConfig()
 	cfg.RateLimitRPM = 60
 	cfg.RateLimitBurst = 1
@@ -222,6 +221,36 @@ func TestChain_RateLimitKeysByXForwardedFor(t *testing.T) {
 	// Client B sharing the RemoteAddr but distinct via XFF must still pass.
 	if code := send("10.0.0.20"); code != http.StatusOK {
 		t.Errorf("B status = %d, want 200 (keyed by XFF)", code)
+	}
+}
+
+func TestChain_RateLimitResistantToXFFSpoofing(t *testing.T) {
+	// SECURITY: On Fly.io the edge sets Fly-Client-IP with the real
+	// client address. An attacker who rotates X-Forwarded-For must NOT
+	// get a fresh rate-limit bucket per request if Fly-Client-IP is the
+	// same. The rate limiter keys by Fly-Client-IP when present, making
+	// XFF spoofing ineffective.
+	cfg := chainConfig()
+	cfg.RateLimitRPM = 60
+	cfg.RateLimitBurst = 1
+	a := New(cfg, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+
+	send := func(flyClientIP, xff string) int {
+		req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+		req.Header.Set("Fly-Client-IP", flyClientIP)
+		req.Header.Set("X-Forwarded-For", xff)
+		req.RemoteAddr = "10.0.0.1:1234"
+		return serveRequest(a, req).Code
+	}
+
+	// Same real IP (Fly-Client-IP), rotated spoofed XFF.
+	if send("198.51.100.1", "fake-ip-1") != http.StatusOK {
+		t.Fatalf("first request: want 200")
+	}
+	// If rate limiting used XFF, "fake-ip-2" would be a fresh bucket → 200.
+	// Since Fly-Client-IP is preferred, the same real IP is rate-limited → 429.
+	if code := send("198.51.100.1", "fake-ip-2"); code != http.StatusTooManyRequests {
+		t.Errorf("second request with spoofed XFF: status = %d, want 429 (Fly-Client-IP must be used)", code)
 	}
 }
 

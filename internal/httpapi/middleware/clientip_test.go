@@ -7,16 +7,44 @@ import (
 )
 
 // TestClientIP covers every extraction path the helper supports, with
-// particular attention to IPv6 edge cases that were flagged as untested
-// in the v0.2.0 release review.
+// particular attention to Fly-Client-IP priority (rate-limit spoofing
+// prevention) and IPv6 edge cases.
 func TestClientIP(t *testing.T) {
 	cases := []struct {
-		name       string
-		xff        string // X-Forwarded-For header; empty means header not set
-		remoteAddr string
-		want       string
+		name        string
+		flyClientIP string // Fly-Client-IP header; empty means not set
+		xff         string // X-Forwarded-For header; empty means not set
+		remoteAddr  string
+		want        string
 	}{
-		// X-Forwarded-For path (preferred when present)
+		// Fly-Client-IP path (highest priority — set by Fly.io edge, non-spoofable)
+		{
+			name:        "fly-client-ip preferred over xff",
+			flyClientIP: "198.51.100.1",
+			xff:         "spoofed-by-attacker",
+			remoteAddr:  "10.0.0.1:1234",
+			want:        "198.51.100.1",
+		},
+		{
+			name:        "fly-client-ip preferred over remoteaddr",
+			flyClientIP: "198.51.100.2",
+			remoteAddr:  "10.0.0.1:1234",
+			want:        "198.51.100.2",
+		},
+		{
+			name:        "fly-client-ip with whitespace trimmed",
+			flyClientIP: " 198.51.100.3 ",
+			remoteAddr:  "10.0.0.1:1234",
+			want:        "198.51.100.3",
+		},
+		{
+			name:        "fly-client-ip ipv6",
+			flyClientIP: "2001:db8::99",
+			remoteAddr:  "10.0.0.1:1234",
+			want:        "2001:db8::99",
+		},
+
+		// X-Forwarded-For path (fallback for non-Fly environments)
 		{
 			name:       "xff single ipv4",
 			xff:        "203.0.113.5",
@@ -84,6 +112,9 @@ func TestClientIP(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			if tc.flyClientIP != "" {
+				req.Header.Set("Fly-Client-IP", tc.flyClientIP)
+			}
 			if tc.xff != "" {
 				req.Header.Set("X-Forwarded-For", tc.xff)
 			}

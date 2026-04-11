@@ -9,7 +9,7 @@ import (
 )
 
 // apiVersion is the current prism-api release marker. Bump at tag time.
-const apiVersion = "0.1.0-dev"
+const apiVersion = "0.2.0"
 
 // HealthHandler serves liveness, readiness, and version endpoints.
 type HealthHandler struct {
