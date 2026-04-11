@@ -49,12 +49,13 @@ lists the variables wired in Phase 1; see
 [`docs/development_rules.md`](docs/development_rules.md) §12 for the full
 Phase 1 configuration surface.
 
-| Variable            | Default | Purpose                            |
-|---------------------|---------|------------------------------------|
-| `PORT`              | `8080`  | Listen port                        |
-| `LOG_LEVEL`         | `info`  | slog level (debug/info/warn/error) |
-| `REQUEST_TIMEOUT`   | `30s`   | Per-request processing timeout     |
-| `SHUTDOWN_TIMEOUT`  | `25s`   | Graceful shutdown wait             |
+| Variable             | Default  | Purpose                              |
+|----------------------|----------|--------------------------------------|
+| `PORT`               | `8080`   | Listen port                          |
+| `LOG_LEVEL`          | `info`   | slog level (debug/info/warn/error)   |
+| `REQUEST_TIMEOUT`    | `30s`    | Per-request processing timeout       |
+| `SHUTDOWN_TIMEOUT`   | `25s`    | Graceful shutdown wait               |
+| `ALLOWED_PROVIDERS`  | `github` | Comma-separated provider allowlist   |
 
 ## Provider Support
 

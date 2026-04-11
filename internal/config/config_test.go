@@ -92,3 +92,44 @@ func TestLoad_InvalidIntReturnsError(t *testing.T) {
 		t.Fatal("Load() should return error for malformed RATE_LIMIT_RPM")
 	}
 }
+
+func TestLoad_AllowedProvidersFromEnv(t *testing.T) {
+	cases := []struct {
+		name string
+		env  string
+		want []string
+	}{
+		{"single", "gitlab", []string{"gitlab"}},
+		{"multiple", "github,gitlab", []string{"github", "gitlab"}},
+		{"trims whitespace", " github , gitlab ", []string{"github", "gitlab"}},
+		{"ignores empty entries", "github,,gitlab,", []string{"github", "gitlab"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("ALLOWED_PROVIDERS", tc.env)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if len(cfg.AllowedProviders) != len(tc.want) {
+				t.Fatalf("AllowedProviders = %v, want %v", cfg.AllowedProviders, tc.want)
+			}
+			for i, v := range tc.want {
+				if cfg.AllowedProviders[i] != v {
+					t.Errorf("AllowedProviders[%d] = %q, want %q", i, cfg.AllowedProviders[i], v)
+				}
+			}
+		})
+	}
+}
+
+func TestLoad_AllowedProvidersFallsBackOnBlankEnv(t *testing.T) {
+	t.Setenv("ALLOWED_PROVIDERS", " , ,")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(cfg.AllowedProviders) != 1 || cfg.AllowedProviders[0] != "github" {
+		t.Errorf("AllowedProviders = %v, want [github] fallback", cfg.AllowedProviders)
+	}
+}

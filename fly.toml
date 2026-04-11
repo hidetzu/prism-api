@@ -26,6 +26,13 @@ primary_region = "nrt"
     timeout = "5s"
     path = "/healthz"
 
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/readyz"
+
 [[vm]]
   size = "shared-cpu-1x"
   memory = "256mb"
