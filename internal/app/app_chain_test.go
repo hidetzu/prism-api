@@ -357,3 +357,45 @@ func TestChain_ConcurrencyLimitRejectsBeyondCapacity(t *testing.T) {
 		t.Errorf("first request status = %d, want 200", code)
 	}
 }
+
+func TestChain_TimeoutMapsToGatewayTimeout(t *testing.T) {
+	// Set a tight REQUEST_TIMEOUT and park the stub usecase on a channel
+	// that is never closed. The Timeout middleware will cancel the
+	// request context, the stub select picks up ctx.Done(), and the
+	// handler must surface this as 504 via the shared usecase error
+	// mapping — not as 500 internal_error.
+	cfg := chainConfig()
+	cfg.RequestTimeout = 50 * time.Millisecond
+
+	never := make(chan struct{}) // intentionally never closed
+	stubA := &stubAnalyzeUsecase{block: never}
+	a := newWithHandlers(cfg, silentLogger(), stubA, &stubPromptUsecase{})
+
+	body := `{"pull_request_url":"https://github.com/owner/repo/pull/1"}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/analyze", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := serveRequest(a, req)
+
+	if rec.Code != http.StatusGatewayTimeout {
+		t.Errorf("status = %d, want 504", rec.Code)
+	}
+	if rec.Header().Get("X-Request-Id") == "" {
+		t.Error("X-Request-Id must be set even on timeout")
+	}
+
+	var errBody struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&errBody); err != nil {
+		t.Fatalf("decode error body: %v", err)
+	}
+	if errBody.Error.Code != "timeout" {
+		t.Errorf("error.code = %q, want timeout", errBody.Error.Code)
+	}
+	if errBody.Error.Message == "" {
+		t.Error("error.message must be non-empty")
+	}
+}

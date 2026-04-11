@@ -204,6 +204,8 @@ func TestAnalyzeHandler_UsecaseErrorMapping(t *testing.T) {
 		{"unsupported provider", prism.ErrUnsupportedProvider, "unsupported_provider", http.StatusBadRequest},
 		{"auth required", prism.ErrAuthRequired, "auth_required", http.StatusUnauthorized},
 		{"upstream failure", prism.ErrUpstreamFailure, "upstream_failure", http.StatusBadGateway},
+		{"context deadline exceeded", context.DeadlineExceeded, "timeout", http.StatusGatewayTimeout},
+		{"context canceled", context.Canceled, "timeout", http.StatusGatewayTimeout},
 		{"unknown error", errors.New("boom"), "internal_error", http.StatusInternalServerError},
 	}
 	for _, tc := range cases {
