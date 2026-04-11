@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -11,8 +12,56 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hidetzu/prism/pkg/prism"
+
 	"github.com/hidetzu/prism-api/internal/config"
+	"github.com/hidetzu/prism-api/internal/usecase"
 )
+
+// stubAnalyzeUsecase implements handler.AnalyzeUsecase by returning canned
+// values. Tests wire it through newWithHandlers so chain integration can
+// exercise the real middleware stack without reaching pkg/prism.
+//
+// When block is non-nil the stub parks on receive, simulating a long-running
+// handler so concurrency_limit and timeout tests can orchestrate scenarios.
+// When entered is non-nil the stub signals arrival before parking.
+type stubAnalyzeUsecase struct {
+	result  prism.Result
+	err     error
+	block   chan struct{}
+	entered chan struct{}
+}
+
+func (s *stubAnalyzeUsecase) Analyze(ctx context.Context, _ usecase.AnalyzeInput) (prism.Result, error) {
+	if s.entered != nil {
+		s.entered <- struct{}{}
+	}
+	if s.block != nil {
+		select {
+		case <-s.block:
+		case <-ctx.Done():
+			return prism.Result{}, ctx.Err()
+		}
+	}
+	return s.result, s.err
+}
+
+// stubPromptUsecase implements handler.PromptUsecase by returning canned
+// values. Mirrors stubAnalyzeUsecase.
+type stubPromptUsecase struct {
+	prompt string
+	err    error
+}
+
+func (s *stubPromptUsecase) Prompt(_ context.Context, _ usecase.PromptInput) (string, error) {
+	return s.prompt, s.err
+}
+
+// silentLogger returns a logger whose output goes to io.Discard, for tests
+// that do not care about log capture.
+func silentLogger() *slog.Logger {
+	return slog.New(slog.NewJSONHandler(io.Discard, nil))
+}
 
 // chainConfig returns a Config suitable for chain integration tests. Callers
 // override specific fields to exercise particular defensive middleware.
@@ -173,5 +222,138 @@ func TestChain_RateLimitKeysByXForwardedFor(t *testing.T) {
 	// Client B sharing the RemoteAddr but distinct via XFF must still pass.
 	if code := send("10.0.0.20"); code != http.StatusOK {
 		t.Errorf("B status = %d, want 200 (keyed by XFF)", code)
+	}
+}
+
+func TestChain_AnalyzeEndpointSuccess(t *testing.T) {
+	stubA := &stubAnalyzeUsecase{
+		result: prism.Result{
+			PR: prism.PRInfo{
+				Provider:   "github",
+				Repository: "owner/repo",
+				ID:         "1",
+				Title:      "Example",
+				URL:        "https://github.com/owner/repo/pull/1",
+			},
+			Analysis: prism.AnalysisResult{
+				ChangeType: "feature",
+				RiskLevel:  "low",
+			},
+		},
+	}
+	a := newWithHandlers(chainConfig(), silentLogger(), stubA, &stubPromptUsecase{})
+
+	body := `{"pull_request_url":"https://github.com/owner/repo/pull/1"}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/analyze", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := serveRequest(a, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if rec.Header().Get("X-Request-Id") == "" {
+		t.Error("X-Request-Id must be set on success")
+	}
+
+	var got struct {
+		Result struct {
+			PullRequest struct {
+				Repository string `json:"repository"`
+				ID         string `json:"id"`
+			} `json:"pull_request"`
+			Analysis struct {
+				ChangeType string `json:"change_type"`
+			} `json:"analysis"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Result.PullRequest.Repository != "owner/repo" {
+		t.Errorf("pull_request.repository = %q", got.Result.PullRequest.Repository)
+	}
+	if got.Result.Analysis.ChangeType != "feature" {
+		t.Errorf("analysis.change_type = %q", got.Result.Analysis.ChangeType)
+	}
+}
+
+func TestChain_PromptEndpointSuccess(t *testing.T) {
+	stubP := &stubPromptUsecase{prompt: "Review this PR focusing on error handling."}
+	a := newWithHandlers(chainConfig(), silentLogger(), &stubAnalyzeUsecase{}, stubP)
+
+	body := `{"pull_request_url":"https://github.com/owner/repo/pull/1","mode":"detailed","language":"ja"}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/prompt", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := serveRequest(a, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if rec.Header().Get("X-Request-Id") == "" {
+		t.Error("X-Request-Id must be set on success")
+	}
+
+	var got struct {
+		Prompt string `json:"prompt"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Prompt != "Review this PR focusing on error handling." {
+		t.Errorf("prompt = %q", got.Prompt)
+	}
+}
+
+func TestChain_ConcurrencyLimitRejectsBeyondCapacity(t *testing.T) {
+	// Cap the server at one in-flight request so the second request is
+	// rejected by concurrency_limit without relying on time.Sleep.
+	cfg := chainConfig()
+	cfg.MaxConcurrentRequests = 1
+
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	stubA := &stubAnalyzeUsecase{
+		block:   release,
+		entered: entered,
+	}
+	a := newWithHandlers(cfg, silentLogger(), stubA, &stubPromptUsecase{})
+
+	firstDone := make(chan int, 1)
+	go func() {
+		body := `{"pull_request_url":"https://github.com/owner/repo/pull/1"}`
+		req := httptest.NewRequest(http.MethodPost, "/v1/analyze", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		firstDone <- serveRequest(a, req).Code
+	}()
+
+	// Wait until the first request is actually inside the stub — by this
+	// point the concurrency_limit middleware has already acquired the only
+	// slot on its behalf.
+	<-entered
+
+	body := `{"pull_request_url":"https://github.com/owner/repo/pull/2"}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/analyze", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := serveRequest(a, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("second request status = %d, want 503", rec.Code)
+	}
+	var errBody struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&errBody); err != nil {
+		t.Fatalf("decode error body: %v", err)
+	}
+	if errBody.Error.Code != "service_unavailable" {
+		t.Errorf("error.code = %q, want service_unavailable", errBody.Error.Code)
+	}
+
+	// Release the first request; it should complete normally.
+	close(release)
+	if code := <-firstDone; code != http.StatusOK {
+		t.Errorf("first request status = %d, want 200", code)
 	}
 }

@@ -24,8 +24,22 @@ type App struct {
 	server *http.Server
 }
 
-// New wires the HTTP server: routes, middleware, timeouts.
+// New wires the HTTP server with the production usecases. This is the
+// constructor production code (cmd/prism-api) uses.
 func New(cfg *config.Config, logger *slog.Logger) *App {
+	return newWithHandlers(cfg, logger, usecase.NewAnalyzer(), usecase.NewPrompter())
+}
+
+// newWithHandlers builds the full middleware chain and route table but
+// accepts the analyze and prompt usecase dependencies as parameters so
+// chain integration tests can substitute fakes without reaching for
+// pkg/prism. Production code must go through New.
+func newWithHandlers(
+	cfg *config.Config,
+	logger *slog.Logger,
+	analyzeUsecase handler.AnalyzeUsecase,
+	promptUsecase handler.PromptUsecase,
+) *App {
 	mux := http.NewServeMux()
 
 	health := handler.NewHealthHandler()
@@ -33,10 +47,10 @@ func New(cfg *config.Config, logger *slog.Logger) *App {
 	mux.HandleFunc("GET /readyz", health.Ready)
 	mux.HandleFunc("GET /version", health.Version)
 
-	analyzeHandler := handler.NewAnalyzeHandler(usecase.NewAnalyzer())
+	analyzeHandler := handler.NewAnalyzeHandler(analyzeUsecase)
 	mux.HandleFunc("POST /v1/analyze", analyzeHandler.Handle)
 
-	promptHandler := handler.NewPromptHandler(usecase.NewPrompter())
+	promptHandler := handler.NewPromptHandler(promptUsecase)
 	mux.HandleFunc("POST /v1/prompt", promptHandler.Handle)
 
 	chain := middleware.Chain(
