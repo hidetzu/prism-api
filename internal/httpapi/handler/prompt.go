@@ -6,8 +6,6 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/hidetzu/prism/pkg/prism"
-
 	"github.com/hidetzu/prism-api/internal/httpapi/middleware"
 	"github.com/hidetzu/prism-api/internal/httpapi/response"
 	"github.com/hidetzu/prism-api/internal/usecase"
@@ -85,36 +83,10 @@ func (h *PromptHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		Language:       req.Language,
 	})
 	if err != nil {
-		writePromptUsecaseError(w, requestID, err)
+		writeUsecaseError(w, requestID, err)
 		return
 	}
 
 	// Phase 2 instruction §8: envelope is {"prompt": "..."}.
 	_ = response.WriteJSON(w, http.StatusOK, map[string]any{"prompt": prompt})
-}
-
-// writePromptUsecaseError maps pkg/prism sentinel errors to the canonical
-// response.Code values. The mapping is identical to
-// writeAnalyzeUsecaseError — the duplication is accepted for Phase 2 and
-// can be folded into a shared helper at v0.2.0 release cleanup time.
-// Unknown errors become CodeInternalError without leaking the underlying
-// message to the client.
-func writePromptUsecaseError(w http.ResponseWriter, requestID string, err error) {
-	switch {
-	case errors.Is(err, prism.ErrInvalidInput):
-		response.WriteError(w, requestID, response.CodeInvalidInput,
-			"the pull request input could not be processed")
-	case errors.Is(err, prism.ErrUnsupportedProvider):
-		response.WriteError(w, requestID, response.CodeUnsupportedProvider,
-			"the requested provider is not supported")
-	case errors.Is(err, prism.ErrAuthRequired):
-		response.WriteError(w, requestID, response.CodeAuthRequired,
-			"authentication is required to access this repository")
-	case errors.Is(err, prism.ErrUpstreamFailure):
-		response.WriteError(w, requestID, response.CodeUpstreamFailure,
-			"upstream service is temporarily unavailable")
-	default:
-		response.WriteError(w, requestID, response.CodeInternalError,
-			"internal server error")
-	}
 }

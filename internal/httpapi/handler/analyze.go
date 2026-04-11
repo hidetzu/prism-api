@@ -84,7 +84,7 @@ func (h *AnalyzeHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		PullRequestURL: req.PullRequestURL,
 	})
 	if err != nil {
-		writeAnalyzeUsecaseError(w, requestID, err)
+		writeUsecaseError(w, requestID, err)
 		return
 	}
 
@@ -93,27 +93,4 @@ func (h *AnalyzeHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	// it directly without a translation layer. Per Phase 2 instruction §7
 	// the envelope is {"result": <Result>}.
 	_ = response.WriteJSON(w, http.StatusOK, map[string]any{"result": result})
-}
-
-// writeAnalyzeUsecaseError maps pkg/prism sentinel errors to the canonical
-// response.Code values. Unknown errors become CodeInternalError without
-// leaking the underlying message to the client.
-func writeAnalyzeUsecaseError(w http.ResponseWriter, requestID string, err error) {
-	switch {
-	case errors.Is(err, prism.ErrInvalidInput):
-		response.WriteError(w, requestID, response.CodeInvalidInput,
-			"the pull request input could not be processed")
-	case errors.Is(err, prism.ErrUnsupportedProvider):
-		response.WriteError(w, requestID, response.CodeUnsupportedProvider,
-			"the requested provider is not supported")
-	case errors.Is(err, prism.ErrAuthRequired):
-		response.WriteError(w, requestID, response.CodeAuthRequired,
-			"authentication is required to access this repository")
-	case errors.Is(err, prism.ErrUpstreamFailure):
-		response.WriteError(w, requestID, response.CodeUpstreamFailure,
-			"upstream service is temporarily unavailable")
-	default:
-		response.WriteError(w, requestID, response.CodeInternalError,
-			"internal server error")
-	}
 }
