@@ -37,8 +37,8 @@ func New(cfg *config.Config, logger *slog.Logger) *App {
 func newWithHandlers(
 	cfg *config.Config,
 	logger *slog.Logger,
-	analyzeUC handler.AnalyzeUsecase,
-	promptUC handler.PromptUsecase,
+	analyzeUsecase handler.AnalyzeUsecase,
+	promptUsecase handler.PromptUsecase,
 ) *App {
 	mux := http.NewServeMux()
 
@@ -47,10 +47,10 @@ func newWithHandlers(
 	mux.HandleFunc("GET /readyz", health.Ready)
 	mux.HandleFunc("GET /version", health.Version)
 
-	analyzeHandler := handler.NewAnalyzeHandler(analyzeUC)
+	analyzeHandler := handler.NewAnalyzeHandler(analyzeUsecase)
 	mux.HandleFunc("POST /v1/analyze", analyzeHandler.Handle)
 
-	promptHandler := handler.NewPromptHandler(promptUC)
+	promptHandler := handler.NewPromptHandler(promptUsecase)
 	mux.HandleFunc("POST /v1/prompt", promptHandler.Handle)
 
 	chain := middleware.Chain(
