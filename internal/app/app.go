@@ -14,6 +14,7 @@ import (
 	"github.com/hidetzu/prism-api/internal/config"
 	"github.com/hidetzu/prism-api/internal/httpapi/handler"
 	"github.com/hidetzu/prism-api/internal/httpapi/middleware"
+	"github.com/hidetzu/prism-api/internal/usecase"
 )
 
 // App holds runtime dependencies and the configured HTTP server.
@@ -31,6 +32,9 @@ func New(cfg *config.Config, logger *slog.Logger) *App {
 	mux.HandleFunc("GET /healthz", health.Live)
 	mux.HandleFunc("GET /readyz", health.Ready)
 	mux.HandleFunc("GET /version", health.Version)
+
+	analyzeHandler := handler.NewAnalyzeHandler(usecase.NewAnalyzer())
+	mux.HandleFunc("POST /v1/analyze", analyzeHandler.Handle)
 
 	chain := middleware.Chain(
 		mux,
