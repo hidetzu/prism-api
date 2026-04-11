@@ -37,6 +37,9 @@ func New(cfg *config.Config, logger *slog.Logger) *App {
 		middleware.RequestID(),
 		middleware.Recover(logger),
 		middleware.Logger(logger),
+		middleware.BodyLimit(cfg.MaxRequestBytes),
+		middleware.RateLimit(cfg.RateLimitRPM, cfg.RateLimitBurst),
+		middleware.ConcurrencyLimit(cfg.MaxConcurrentRequests),
 		middleware.Timeout(cfg.RequestTimeout),
 	)
 
