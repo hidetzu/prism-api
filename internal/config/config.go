@@ -6,6 +6,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -70,7 +71,78 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
 	return cfg, nil
+}
+
+// validLogLevels mirrors the set accepted by logging.parseLevel. It is
+// duplicated here (rather than imported from internal/logging) because
+// logging depends on config and importing it back would create a cycle.
+// The set is tiny and stable, so the duplication cost is minimal.
+var validLogLevels = map[string]struct{}{
+	"debug":   {},
+	"info":    {},
+	"warn":    {},
+	"warning": {},
+	"error":   {},
+}
+
+// Validate checks that loaded field values are within acceptable bounds.
+//
+// Rules:
+//   - PORT must parse as an integer in [0, 65535]. Zero is accepted so that
+//     tests and ephemeral-port use cases still work.
+//   - LOG_LEVEL must match one of the slog level names parseLevel accepts
+//     (debug, info, warn, warning, error), case-insensitive.
+//   - Duration fields must be strictly positive because a zero or negative
+//     timeout is never a useful configuration.
+//   - Count and byte fields must be non-negative; a value of zero is
+//     accepted because body_limit / rate_limit / concurrency_limit
+//     middleware document it as the "disable this guard" convention.
+//
+// All violations are collected and returned together via errors.Join so
+// an operator fixing a misconfiguration can see every problem at once
+// rather than one per restart.
+func (c *Config) Validate() error {
+	var errs []error
+
+	if p, err := strconv.Atoi(c.Port); err != nil || p < 0 || p > 65535 {
+		errs = append(errs, fmt.Errorf("PORT must be an integer in [0, 65535], got %q", c.Port))
+	}
+	if _, ok := validLogLevels[strings.ToLower(c.LogLevel)]; !ok {
+		errs = append(errs, fmt.Errorf("LOG_LEVEL must be one of debug|info|warn|warning|error, got %q", c.LogLevel))
+	}
+	if c.RequestTimeout <= 0 {
+		errs = append(errs, fmt.Errorf("REQUEST_TIMEOUT must be positive, got %v", c.RequestTimeout))
+	}
+	if c.ShutdownTimeout <= 0 {
+		errs = append(errs, fmt.Errorf("SHUTDOWN_TIMEOUT must be positive, got %v", c.ShutdownTimeout))
+	}
+	if c.MaxRequestBytes < 0 {
+		errs = append(errs, fmt.Errorf("MAX_REQUEST_BYTES must be non-negative, got %d", c.MaxRequestBytes))
+	}
+	if c.RateLimitRPM < 0 {
+		errs = append(errs, fmt.Errorf("RATE_LIMIT_RPM must be non-negative, got %d", c.RateLimitRPM))
+	}
+	if c.RateLimitBurst < 0 {
+		errs = append(errs, fmt.Errorf("RATE_LIMIT_BURST must be non-negative, got %d", c.RateLimitBurst))
+	}
+	if c.MaxConcurrentRequests < 0 {
+		errs = append(errs, fmt.Errorf("MAX_CONCURRENT_REQUESTS must be non-negative, got %d", c.MaxConcurrentRequests))
+	}
+	if c.MaxChangedFiles < 0 {
+		errs = append(errs, fmt.Errorf("MAX_CHANGED_FILES must be non-negative, got %d", c.MaxChangedFiles))
+	}
+	if c.MaxDiffBytes < 0 {
+		errs = append(errs, fmt.Errorf("MAX_DIFF_BYTES must be non-negative, got %d", c.MaxDiffBytes))
+	}
+	if c.MaxResponseBytes < 0 {
+		errs = append(errs, fmt.Errorf("MAX_RESPONSE_BYTES must be non-negative, got %d", c.MaxResponseBytes))
+	}
+
+	return errors.Join(errs...)
 }
 
 func getString(key, def string) string {

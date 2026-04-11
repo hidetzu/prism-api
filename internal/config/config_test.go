@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -131,5 +132,169 @@ func TestLoad_AllowedProvidersFallsBackOnBlankEnv(t *testing.T) {
 	}
 	if len(cfg.AllowedProviders) != 1 || cfg.AllowedProviders[0] != "github" {
 		t.Errorf("AllowedProviders = %v, want [github] fallback", cfg.AllowedProviders)
+	}
+}
+
+func TestLoad_RejectsOutOfRangeValues(t *testing.T) {
+	cases := []struct {
+		name    string
+		env     map[string]string
+		wantSub string // substring expected in error message
+	}{
+		{
+			name:    "non-numeric port",
+			env:     map[string]string{"PORT": "abc"},
+			wantSub: "PORT",
+		},
+		{
+			name:    "negative port",
+			env:     map[string]string{"PORT": "-1"},
+			wantSub: "PORT",
+		},
+		{
+			name:    "port out of range",
+			env:     map[string]string{"PORT": "99999"},
+			wantSub: "PORT",
+		},
+		{
+			name:    "unknown log level",
+			env:     map[string]string{"LOG_LEVEL": "bogus"},
+			wantSub: "LOG_LEVEL",
+		},
+		{
+			name:    "numeric log level",
+			env:     map[string]string{"LOG_LEVEL": "5"},
+			wantSub: "LOG_LEVEL",
+		},
+		{
+			name:    "zero request timeout",
+			env:     map[string]string{"REQUEST_TIMEOUT": "0s"},
+			wantSub: "REQUEST_TIMEOUT",
+		},
+		{
+			name:    "negative request timeout",
+			env:     map[string]string{"REQUEST_TIMEOUT": "-1s"},
+			wantSub: "REQUEST_TIMEOUT",
+		},
+		{
+			name:    "zero shutdown timeout",
+			env:     map[string]string{"SHUTDOWN_TIMEOUT": "0s"},
+			wantSub: "SHUTDOWN_TIMEOUT",
+		},
+		{
+			name:    "negative shutdown timeout",
+			env:     map[string]string{"SHUTDOWN_TIMEOUT": "-5s"},
+			wantSub: "SHUTDOWN_TIMEOUT",
+		},
+		{
+			name:    "negative max request bytes",
+			env:     map[string]string{"MAX_REQUEST_BYTES": "-1"},
+			wantSub: "MAX_REQUEST_BYTES",
+		},
+		{
+			name:    "negative rate limit rpm",
+			env:     map[string]string{"RATE_LIMIT_RPM": "-10"},
+			wantSub: "RATE_LIMIT_RPM",
+		},
+		{
+			name:    "negative rate limit burst",
+			env:     map[string]string{"RATE_LIMIT_BURST": "-1"},
+			wantSub: "RATE_LIMIT_BURST",
+		},
+		{
+			name:    "negative max concurrent",
+			env:     map[string]string{"MAX_CONCURRENT_REQUESTS": "-5"},
+			wantSub: "MAX_CONCURRENT_REQUESTS",
+		},
+		{
+			name:    "negative max changed files",
+			env:     map[string]string{"MAX_CHANGED_FILES": "-1"},
+			wantSub: "MAX_CHANGED_FILES",
+		},
+		{
+			name:    "negative max diff bytes",
+			env:     map[string]string{"MAX_DIFF_BYTES": "-100"},
+			wantSub: "MAX_DIFF_BYTES",
+		},
+		{
+			name:    "negative max response bytes",
+			env:     map[string]string{"MAX_RESPONSE_BYTES": "-100"},
+			wantSub: "MAX_RESPONSE_BYTES",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			_, err := Load()
+			if err == nil {
+				t.Fatal("Load() returned nil error, want validation error")
+			}
+			if !strings.Contains(err.Error(), tc.wantSub) {
+				t.Errorf("error = %q, want substring %q", err.Error(), tc.wantSub)
+			}
+		})
+	}
+}
+
+func TestLoad_ReportsAllErrorsAtOnce(t *testing.T) {
+	// Two bad values must surface in a single Load() error so operators
+	// don't play whack-a-mole across restarts.
+	t.Setenv("REQUEST_TIMEOUT", "-1s")
+	t.Setenv("RATE_LIMIT_RPM", "-5")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() returned nil error, want aggregated validation error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "REQUEST_TIMEOUT") {
+		t.Errorf("error missing REQUEST_TIMEOUT: %q", msg)
+	}
+	if !strings.Contains(msg, "RATE_LIMIT_RPM") {
+		t.Errorf("error missing RATE_LIMIT_RPM: %q", msg)
+	}
+}
+
+func TestLoad_PortAcceptsValidRange(t *testing.T) {
+	for _, port := range []string{"0", "1", "8080", "65535"} {
+		t.Run(port, func(t *testing.T) {
+			t.Setenv("PORT", port)
+			if _, err := Load(); err != nil {
+				t.Errorf("Load() err = %v for PORT=%q, want nil", err, port)
+			}
+		})
+	}
+}
+
+func TestLoad_LogLevelIsCaseInsensitive(t *testing.T) {
+	for _, lvl := range []string{"debug", "DEBUG", "Info", "warn", "WARNING", "error"} {
+		t.Run(lvl, func(t *testing.T) {
+			t.Setenv("LOG_LEVEL", lvl)
+			if _, err := Load(); err != nil {
+				t.Errorf("Load() err = %v for LOG_LEVEL=%q, want nil", err, lvl)
+			}
+		})
+	}
+}
+
+func TestLoad_ZeroIsValidForCountFields(t *testing.T) {
+	// Zero is accepted for count/byte fields because the middleware layer
+	// uses it as the "disable this guard" convention.
+	t.Setenv("MAX_REQUEST_BYTES", "0")
+	t.Setenv("RATE_LIMIT_RPM", "0")
+	t.Setenv("RATE_LIMIT_BURST", "0")
+	t.Setenv("MAX_CONCURRENT_REQUESTS", "0")
+	t.Setenv("MAX_CHANGED_FILES", "0")
+	t.Setenv("MAX_DIFF_BYTES", "0")
+	t.Setenv("MAX_RESPONSE_BYTES", "0")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() err = %v, want nil (zero is valid for count fields)", err)
+	}
+	if cfg.MaxRequestBytes != 0 || cfg.RateLimitRPM != 0 || cfg.MaxConcurrentRequests != 0 {
+		t.Errorf("zero count fields not preserved: %+v", cfg)
 	}
 }
