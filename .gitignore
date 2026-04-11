@@ -1,0 +1,31 @@
+# Build artifacts
+/bin/
+/build/
+*.exe
+
+# Test outputs
+*.test
+coverage.*
+*.out
+
+# Vendor
+/vendor/
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Working area
+tmp/
+
+# Claude Code
+CLAUDE.md
+.claude/
