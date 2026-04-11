@@ -1,0 +1,16 @@
+.git
+.gitignore
+.github
+.golangci.yml
+.claude
+CLAUDE.md
+docs
+tmp
+README.md
+LICENSE
+Makefile
+fly.toml
+bin
+*.test
+*.out
+coverage.*
