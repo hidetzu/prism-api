@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -131,5 +132,115 @@ func TestLoad_AllowedProvidersFallsBackOnBlankEnv(t *testing.T) {
 	}
 	if len(cfg.AllowedProviders) != 1 || cfg.AllowedProviders[0] != "github" {
 		t.Errorf("AllowedProviders = %v, want [github] fallback", cfg.AllowedProviders)
+	}
+}
+
+func TestLoad_RejectsOutOfRangeValues(t *testing.T) {
+	cases := []struct {
+		name    string
+		env     map[string]string
+		wantSub string // substring expected in error message
+	}{
+		{
+			name:    "zero request timeout",
+			env:     map[string]string{"REQUEST_TIMEOUT": "0s"},
+			wantSub: "REQUEST_TIMEOUT",
+		},
+		{
+			name:    "negative request timeout",
+			env:     map[string]string{"REQUEST_TIMEOUT": "-1s"},
+			wantSub: "REQUEST_TIMEOUT",
+		},
+		{
+			name:    "zero shutdown timeout",
+			env:     map[string]string{"SHUTDOWN_TIMEOUT": "0s"},
+			wantSub: "SHUTDOWN_TIMEOUT",
+		},
+		{
+			name:    "negative shutdown timeout",
+			env:     map[string]string{"SHUTDOWN_TIMEOUT": "-5s"},
+			wantSub: "SHUTDOWN_TIMEOUT",
+		},
+		{
+			name:    "negative max request bytes",
+			env:     map[string]string{"MAX_REQUEST_BYTES": "-1"},
+			wantSub: "MAX_REQUEST_BYTES",
+		},
+		{
+			name:    "negative rate limit rpm",
+			env:     map[string]string{"RATE_LIMIT_RPM": "-10"},
+			wantSub: "RATE_LIMIT_RPM",
+		},
+		{
+			name:    "negative rate limit burst",
+			env:     map[string]string{"RATE_LIMIT_BURST": "-1"},
+			wantSub: "RATE_LIMIT_BURST",
+		},
+		{
+			name:    "negative max concurrent",
+			env:     map[string]string{"MAX_CONCURRENT_REQUESTS": "-5"},
+			wantSub: "MAX_CONCURRENT_REQUESTS",
+		},
+		{
+			name:    "negative max changed files",
+			env:     map[string]string{"MAX_CHANGED_FILES": "-1"},
+			wantSub: "MAX_CHANGED_FILES",
+		},
+		{
+			name:    "negative max diff bytes",
+			env:     map[string]string{"MAX_DIFF_BYTES": "-100"},
+			wantSub: "MAX_DIFF_BYTES",
+		},
+		{
+			name:    "negative max response bytes",
+			env:     map[string]string{"MAX_RESPONSE_BYTES": "-100"},
+			wantSub: "MAX_RESPONSE_BYTES",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			_, err := Load()
+			if err == nil {
+				t.Fatal("Load() returned nil error, want validation error")
+			}
+			if !strings.Contains(err.Error(), tc.wantSub) {
+				t.Errorf("error = %q, want substring %q", err.Error(), tc.wantSub)
+			}
+		})
+	}
+}
+
+func TestLoad_ZeroIsValidForCountFields(t *testing.T) {
+	// Zero is accepted for count/byte fields because the middleware layer
+	// uses it as the "disable this guard" convention.
+	t.Setenv("MAX_REQUEST_BYTES", "0")
+	t.Setenv("RATE_LIMIT_RPM", "0")
+	t.Setenv("RATE_LIMIT_BURST", "0")
+	t.Setenv("MAX_CONCURRENT_REQUESTS", "0")
+	t.Setenv("MAX_CHANGED_FILES", "0")
+	t.Setenv("MAX_DIFF_BYTES", "0")
+	t.Setenv("MAX_RESPONSE_BYTES", "0")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() err = %v, want nil (zero is valid for count fields)", err)
+	}
+	if cfg.MaxRequestBytes != 0 || cfg.RateLimitRPM != 0 || cfg.MaxConcurrentRequests != 0 {
+		t.Errorf("zero count fields not preserved: %+v", cfg)
+	}
+}
+
+func TestConfig_Validate_ValidDefault(t *testing.T) {
+	// Sanity check: the default-loaded Config must pass Validate so that
+	// TestLoad_Defaults remains meaningful.
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() err = %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("default Validate() err = %v, want nil", err)
 	}
 }

@@ -70,7 +70,47 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
 	return cfg, nil
+}
+
+// Validate checks that loaded field values are within acceptable bounds.
+// Duration fields must be strictly positive because a zero or negative
+// timeout is never a useful configuration. Count and byte fields must be
+// non-negative; a value of zero is accepted because the middleware layer
+// documents it as the "disable this guard" convention (see body_limit,
+// rate_limit, concurrency_limit for details).
+func (c *Config) Validate() error {
+	if c.RequestTimeout <= 0 {
+		return fmt.Errorf("REQUEST_TIMEOUT must be positive, got %v", c.RequestTimeout)
+	}
+	if c.ShutdownTimeout <= 0 {
+		return fmt.Errorf("SHUTDOWN_TIMEOUT must be positive, got %v", c.ShutdownTimeout)
+	}
+	if c.MaxRequestBytes < 0 {
+		return fmt.Errorf("MAX_REQUEST_BYTES must be non-negative, got %d", c.MaxRequestBytes)
+	}
+	if c.RateLimitRPM < 0 {
+		return fmt.Errorf("RATE_LIMIT_RPM must be non-negative, got %d", c.RateLimitRPM)
+	}
+	if c.RateLimitBurst < 0 {
+		return fmt.Errorf("RATE_LIMIT_BURST must be non-negative, got %d", c.RateLimitBurst)
+	}
+	if c.MaxConcurrentRequests < 0 {
+		return fmt.Errorf("MAX_CONCURRENT_REQUESTS must be non-negative, got %d", c.MaxConcurrentRequests)
+	}
+	if c.MaxChangedFiles < 0 {
+		return fmt.Errorf("MAX_CHANGED_FILES must be non-negative, got %d", c.MaxChangedFiles)
+	}
+	if c.MaxDiffBytes < 0 {
+		return fmt.Errorf("MAX_DIFF_BYTES must be non-negative, got %d", c.MaxDiffBytes)
+	}
+	if c.MaxResponseBytes < 0 {
+		return fmt.Errorf("MAX_RESPONSE_BYTES must be non-negative, got %d", c.MaxResponseBytes)
+	}
+	return nil
 }
 
 func getString(key, def string) string {
