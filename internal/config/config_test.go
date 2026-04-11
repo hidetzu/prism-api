@@ -142,6 +142,31 @@ func TestLoad_RejectsOutOfRangeValues(t *testing.T) {
 		wantSub string // substring expected in error message
 	}{
 		{
+			name:    "non-numeric port",
+			env:     map[string]string{"PORT": "abc"},
+			wantSub: "PORT",
+		},
+		{
+			name:    "negative port",
+			env:     map[string]string{"PORT": "-1"},
+			wantSub: "PORT",
+		},
+		{
+			name:    "port out of range",
+			env:     map[string]string{"PORT": "99999"},
+			wantSub: "PORT",
+		},
+		{
+			name:    "unknown log level",
+			env:     map[string]string{"LOG_LEVEL": "bogus"},
+			wantSub: "LOG_LEVEL",
+		},
+		{
+			name:    "numeric log level",
+			env:     map[string]string{"LOG_LEVEL": "5"},
+			wantSub: "LOG_LEVEL",
+		},
+		{
 			name:    "zero request timeout",
 			env:     map[string]string{"REQUEST_TIMEOUT": "0s"},
 			wantSub: "REQUEST_TIMEOUT",
@@ -213,6 +238,47 @@ func TestLoad_RejectsOutOfRangeValues(t *testing.T) {
 	}
 }
 
+func TestLoad_ReportsAllErrorsAtOnce(t *testing.T) {
+	// Two bad values must surface in a single Load() error so operators
+	// don't play whack-a-mole across restarts.
+	t.Setenv("REQUEST_TIMEOUT", "-1s")
+	t.Setenv("RATE_LIMIT_RPM", "-5")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() returned nil error, want aggregated validation error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "REQUEST_TIMEOUT") {
+		t.Errorf("error missing REQUEST_TIMEOUT: %q", msg)
+	}
+	if !strings.Contains(msg, "RATE_LIMIT_RPM") {
+		t.Errorf("error missing RATE_LIMIT_RPM: %q", msg)
+	}
+}
+
+func TestLoad_PortAcceptsValidRange(t *testing.T) {
+	for _, port := range []string{"0", "1", "8080", "65535"} {
+		t.Run(port, func(t *testing.T) {
+			t.Setenv("PORT", port)
+			if _, err := Load(); err != nil {
+				t.Errorf("Load() err = %v for PORT=%q, want nil", err, port)
+			}
+		})
+	}
+}
+
+func TestLoad_LogLevelIsCaseInsensitive(t *testing.T) {
+	for _, lvl := range []string{"debug", "DEBUG", "Info", "warn", "WARNING", "error"} {
+		t.Run(lvl, func(t *testing.T) {
+			t.Setenv("LOG_LEVEL", lvl)
+			if _, err := Load(); err != nil {
+				t.Errorf("Load() err = %v for LOG_LEVEL=%q, want nil", err, lvl)
+			}
+		})
+	}
+}
+
 func TestLoad_ZeroIsValidForCountFields(t *testing.T) {
 	// Zero is accepted for count/byte fields because the middleware layer
 	// uses it as the "disable this guard" convention.
@@ -230,17 +296,5 @@ func TestLoad_ZeroIsValidForCountFields(t *testing.T) {
 	}
 	if cfg.MaxRequestBytes != 0 || cfg.RateLimitRPM != 0 || cfg.MaxConcurrentRequests != 0 {
 		t.Errorf("zero count fields not preserved: %+v", cfg)
-	}
-}
-
-func TestConfig_Validate_ValidDefault(t *testing.T) {
-	// Sanity check: the default-loaded Config must pass Validate so that
-	// TestLoad_Defaults remains meaningful.
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() err = %v", err)
-	}
-	if err := cfg.Validate(); err != nil {
-		t.Errorf("default Validate() err = %v, want nil", err)
 	}
 }
