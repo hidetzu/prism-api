@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base32"
+	"io"
 	"net/http"
 )
 
@@ -42,11 +43,17 @@ func RequestIDFrom(ctx context.Context) string {
 
 var requestIDEncoding = base32.StdEncoding.WithPadding(base32.NoPadding)
 
+// randSource is the source of randomness used by newRequestID. Production
+// code uses crypto/rand.Reader; tests may replace it via a defer-restored
+// assignment to exercise the read-failure fallback path. rand.Reader's
+// declared type is io.Reader, so type inference is sufficient.
+var randSource = rand.Reader
+
 // newRequestID generates a 26-character random identifier.
 // 16 random bytes encoded as unpadded base32 yields 26 ASCII characters.
 func newRequestID() string {
 	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
+	if _, err := io.ReadFull(randSource, b[:]); err != nil {
 		// Extremely unlikely in practice; return a fixed sentinel so the
 		// request still has a (non-empty) identifier.
 		return "00000000000000000000000000"

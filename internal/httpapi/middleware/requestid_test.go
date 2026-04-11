@@ -2,10 +2,19 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
+
+// errorReader always fails Read. Used to exercise the randSource failure
+// path in newRequestID without actually exhausting /dev/urandom.
+type errorReader struct{}
+
+func (errorReader) Read(_ []byte) (int, error) {
+	return 0, errors.New("simulated rand failure")
+}
 
 func TestRequestID_SetsHeaderAndContext(t *testing.T) {
 	var contextID string
@@ -51,5 +60,21 @@ func TestRequestID_GeneratesUniqueIDs(t *testing.T) {
 func TestRequestIDFrom_EmptyContext(t *testing.T) {
 	if id := RequestIDFrom(context.Background()); id != "" {
 		t.Errorf("RequestIDFrom(empty) = %q, want empty", id)
+	}
+}
+
+func TestNewRequestID_FallsBackToSentinelOnReadFailure(t *testing.T) {
+	// Swap the package-level randSource for one that always errors so the
+	// fallback path in newRequestID runs. t.Cleanup restores the original
+	// so other tests in the package are not affected.
+	orig := randSource
+	randSource = errorReader{}
+	t.Cleanup(func() { randSource = orig })
+
+	const want = "00000000000000000000000000"
+	for i := 0; i < 3; i++ {
+		if got := newRequestID(); got != want {
+			t.Errorf("newRequestID() = %q, want sentinel %q", got, want)
+		}
 	}
 }
