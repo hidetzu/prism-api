@@ -28,18 +28,18 @@ func NewHealthHandler() *HealthHandler {
 
 // Live serves the liveness probe. A 200 response indicates the process is
 // running and able to serve requests.
-func (h *HealthHandler) Live(w http.ResponseWriter, r *http.Request) {
+func (h *HealthHandler) Live(w http.ResponseWriter, _ *http.Request) {
 	_ = response.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // Ready serves the readiness probe. In Phase 1 there are no downstream
 // dependencies to probe, so readiness is equivalent to liveness.
-func (h *HealthHandler) Ready(w http.ResponseWriter, r *http.Request) {
+func (h *HealthHandler) Ready(w http.ResponseWriter, _ *http.Request) {
 	_ = response.WriteJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 }
 
 // Version returns the API and Go runtime versions.
-func (h *HealthHandler) Version(w http.ResponseWriter, r *http.Request) {
+func (h *HealthHandler) Version(w http.ResponseWriter, _ *http.Request) {
 	_ = response.WriteJSON(w, http.StatusOK, map[string]string{
 		"api_version": h.apiVersion,
 		"go_version":  h.goVersion,

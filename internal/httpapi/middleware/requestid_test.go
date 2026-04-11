@@ -35,7 +35,7 @@ func TestRequestID_SetsHeaderAndContext(t *testing.T) {
 
 func TestRequestID_GeneratesUniqueIDs(t *testing.T) {
 	seen := make(map[string]bool, 200)
-	h := RequestID()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	h := RequestID()(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
 
 	for i := 0; i < 200; i++ {
 		rec := httptest.NewRecorder()

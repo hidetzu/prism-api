@@ -13,7 +13,7 @@ func TestLogger_LogsRequestFields(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&buf, nil))
 
-	h := Logger(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := Logger(logger)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{}`))
 	}))
@@ -52,7 +52,7 @@ func TestLogger_UsesXForwardedFor(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&buf, nil))
 
-	h := Logger(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := Logger(logger)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 

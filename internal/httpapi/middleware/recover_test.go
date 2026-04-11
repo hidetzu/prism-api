@@ -12,7 +12,7 @@ import (
 func TestRecover_CatchesPanicAndReturns500(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	h := Chain(
-		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 			panic("boom")
 		}),
 		RequestID(),
@@ -47,7 +47,7 @@ func TestRecover_CatchesPanicAndReturns500(t *testing.T) {
 
 func TestRecover_PassesThroughOnSuccess(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	h := Recover(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := Recover(logger)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 

@@ -12,6 +12,8 @@ const contentTypeJSON = "application/json; charset=utf-8"
 // Code is a machine-readable error code returned in error bodies.
 type Code string
 
+// Error codes returned in the body of error responses. Each code maps to a
+// canonical HTTP status via (Code).HTTPStatus.
 const (
 	CodeInvalidInput       Code = "invalid_input"
 	CodeAuthRequired       Code = "auth_required"
