@@ -2,9 +2,7 @@ package middleware
 
 import (
 	"log/slog"
-	"net"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -50,21 +48,4 @@ func (s *statusRecorder) Write(b []byte) (int, error) {
 		s.wroteHeader = true
 	}
 	return s.ResponseWriter.Write(b)
-}
-
-// clientIP extracts the client IP address from the request. It prefers the
-// first entry in X-Forwarded-For when present (behind a trusted proxy such
-// as Fly.io's edge) and falls back to RemoteAddr otherwise.
-func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if idx := strings.IndexByte(xff, ','); idx >= 0 {
-			return strings.TrimSpace(xff[:idx])
-		}
-		return strings.TrimSpace(xff)
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
 }
