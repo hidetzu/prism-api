@@ -15,23 +15,27 @@ type Code string
 // Error codes returned in the body of error responses. Each code maps to a
 // canonical HTTP status via (Code).HTTPStatus.
 const (
-	CodeInvalidInput       Code = "invalid_input"
-	CodeAuthRequired       Code = "auth_required"
-	CodePayloadTooLarge    Code = "payload_too_large"
-	CodeRateLimited        Code = "rate_limited"
-	CodeServiceUnavailable Code = "service_unavailable"
-	CodeTimeout            Code = "timeout"
-	CodeUpstreamFailure    Code = "upstream_failure"
-	CodeInternalError      Code = "internal_error"
+	CodeInvalidInput        Code = "invalid_input"
+	CodeUnsupportedProvider Code = "unsupported_provider"
+	CodeAuthRequired        Code = "auth_required"
+	CodeNotFound            Code = "not_found"
+	CodePayloadTooLarge     Code = "payload_too_large"
+	CodeRateLimited         Code = "rate_limited"
+	CodeServiceUnavailable  Code = "service_unavailable"
+	CodeTimeout             Code = "timeout"
+	CodeUpstreamFailure     Code = "upstream_failure"
+	CodeInternalError       Code = "internal_error"
 )
 
 // HTTPStatus returns the HTTP status code corresponding to c.
 func (c Code) HTTPStatus() int {
 	switch c {
-	case CodeInvalidInput:
+	case CodeInvalidInput, CodeUnsupportedProvider:
 		return http.StatusBadRequest
 	case CodeAuthRequired:
 		return http.StatusUnauthorized
+	case CodeNotFound:
+		return http.StatusNotFound
 	case CodePayloadTooLarge:
 		return http.StatusRequestEntityTooLarge
 	case CodeRateLimited:

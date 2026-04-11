@@ -61,7 +61,9 @@ func TestCode_HTTPStatus(t *testing.T) {
 		want int
 	}{
 		{CodeInvalidInput, http.StatusBadRequest},
+		{CodeUnsupportedProvider, http.StatusBadRequest},
 		{CodeAuthRequired, http.StatusUnauthorized},
+		{CodeNotFound, http.StatusNotFound},
 		{CodePayloadTooLarge, http.StatusRequestEntityTooLarge},
 		{CodeRateLimited, http.StatusTooManyRequests},
 		{CodeServiceUnavailable, http.StatusServiceUnavailable},
