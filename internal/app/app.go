@@ -7,7 +7,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -54,9 +53,19 @@ func New(cfg *config.Config, logger *slog.Logger) *App {
 	}
 }
 
-// Run starts the HTTP server and blocks until a shutdown signal is received,
+// Run starts the HTTP server and blocks until SIGINT or SIGTERM is received,
 // then performs graceful shutdown bounded by cfg.ShutdownTimeout.
 func (a *App) Run() error {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	return a.run(ctx)
+}
+
+// run launches ListenAndServe in a goroutine and blocks until either the
+// server exits or ctx is canceled, then performs graceful shutdown bounded
+// by cfg.ShutdownTimeout. It is unexported so that tests can drive the
+// lifecycle with a controllable context.
+func (a *App) run(ctx context.Context) error {
 	srvErrCh := make(chan error, 1)
 	go func() {
 		a.logger.Info("server starting", "addr", a.server.Addr)
@@ -68,15 +77,11 @@ func (a *App) Run() error {
 		srvErrCh <- nil
 	}()
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(sigCh)
-
 	select {
 	case err := <-srvErrCh:
 		return err
-	case sig := <-sigCh:
-		a.logger.Info("shutdown signal received", "signal", sig.String())
+	case <-ctx.Done():
+		a.logger.Info("shutdown signal received")
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), a.cfg.ShutdownTimeout)

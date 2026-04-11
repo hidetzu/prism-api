@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -37,7 +38,7 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		Port:             getString("PORT", "8080"),
 		LogLevel:         getString("LOG_LEVEL", "info"),
-		AllowedProviders: []string{"github"},
+		AllowedProviders: getStringSlice("ALLOWED_PROVIDERS", []string{"github"}),
 	}
 
 	var err error
@@ -77,6 +78,27 @@ func getString(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// getStringSlice reads a comma-separated environment variable and returns
+// the non-empty trimmed entries. If the variable is unset or yields no
+// non-empty entries, def is returned.
+func getStringSlice(key string, def []string) []string {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if s := strings.TrimSpace(p); s != "" {
+			out = append(out, s)
+		}
+	}
+	if len(out) == 0 {
+		return def
+	}
+	return out
 }
 
 func getInt(key string, def int) (int, error) {
