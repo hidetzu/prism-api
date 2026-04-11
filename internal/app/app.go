@@ -36,6 +36,9 @@ func New(cfg *config.Config, logger *slog.Logger) *App {
 	analyzeHandler := handler.NewAnalyzeHandler(usecase.NewAnalyzer())
 	mux.HandleFunc("POST /v1/analyze", analyzeHandler.Handle)
 
+	promptHandler := handler.NewPromptHandler(usecase.NewPrompter())
+	mux.HandleFunc("POST /v1/prompt", promptHandler.Handle)
+
 	chain := middleware.Chain(
 		mux,
 		middleware.RequestID(),

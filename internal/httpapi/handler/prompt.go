@@ -1,0 +1,120 @@
+package handler
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+
+	"github.com/hidetzu/prism/pkg/prism"
+
+	"github.com/hidetzu/prism-api/internal/httpapi/middleware"
+	"github.com/hidetzu/prism-api/internal/httpapi/response"
+	"github.com/hidetzu/prism-api/internal/usecase"
+	"github.com/hidetzu/prism-api/internal/validation"
+)
+
+// PromptRequest is the JSON body accepted by POST /v1/prompt. Mode and
+// Language are optional; when omitted (or empty), the request is forwarded
+// to pkg/prism which applies its own defaults ("light" and "en").
+type PromptRequest struct {
+	PullRequestURL string `json:"pull_request_url"`
+	Mode           string `json:"mode,omitempty"`
+	Language       string `json:"language,omitempty"`
+}
+
+// Validate enforces that pull_request_url is present and a well-formed
+// GitHub pull request URL. Mode and Language are not validated here —
+// pkg/prism either accepts them or rejects the call as ErrInvalidInput,
+// which flows back through the usecase layer and becomes a 400 response.
+func (r PromptRequest) Validate() error {
+	if err := validation.Required("pull_request_url", r.PullRequestURL); err != nil {
+		return err
+	}
+	return validation.GitHubPullRequestURL(r.PullRequestURL)
+}
+
+// PromptUsecase is the handler-side view of the prompt usecase. Defined
+// here (not in internal/usecase) so the handler package follows the
+// "accept interfaces, return structs" idiom per
+// docs/development_rules.md §10.
+type PromptUsecase interface {
+	Prompt(ctx context.Context, in usecase.PromptInput) (string, error)
+}
+
+// PromptHandler serves POST /v1/prompt.
+type PromptHandler struct {
+	uc PromptUsecase
+}
+
+// NewPromptHandler constructs a PromptHandler with the provided usecase.
+func NewPromptHandler(uc PromptUsecase) *PromptHandler {
+	return &PromptHandler{uc: uc}
+}
+
+// Handle serves a single POST /v1/prompt request.
+func (h *PromptHandler) Handle(w http.ResponseWriter, r *http.Request) {
+	requestID := middleware.RequestIDFrom(r.Context())
+
+	var req PromptRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			response.WriteError(w, requestID, response.CodePayloadTooLarge,
+				"request body exceeds the configured limit")
+			return
+		}
+		response.WriteError(w, requestID, response.CodeInvalidInput,
+			"request body must be a valid JSON object")
+		return
+	}
+
+	if err := req.Validate(); err != nil {
+		var verr *validation.Error
+		if errors.As(err, &verr) {
+			response.WriteError(w, requestID, response.CodeInvalidInput, verr.Error())
+			return
+		}
+		response.WriteError(w, requestID, response.CodeInvalidInput, err.Error())
+		return
+	}
+
+	prompt, err := h.uc.Prompt(r.Context(), usecase.PromptInput{
+		PullRequestURL: req.PullRequestURL,
+		Mode:           req.Mode,
+		Language:       req.Language,
+	})
+	if err != nil {
+		writePromptUsecaseError(w, requestID, err)
+		return
+	}
+
+	// Phase 2 instruction §8: envelope is {"prompt": "..."}.
+	_ = response.WriteJSON(w, http.StatusOK, map[string]any{"prompt": prompt})
+}
+
+// writePromptUsecaseError maps pkg/prism sentinel errors to the canonical
+// response.Code values. The mapping is identical to
+// writeAnalyzeUsecaseError — the duplication is accepted for Phase 2 and
+// can be folded into a shared helper at v0.2.0 release cleanup time.
+// Unknown errors become CodeInternalError without leaking the underlying
+// message to the client.
+func writePromptUsecaseError(w http.ResponseWriter, requestID string, err error) {
+	switch {
+	case errors.Is(err, prism.ErrInvalidInput):
+		response.WriteError(w, requestID, response.CodeInvalidInput,
+			"the pull request input could not be processed")
+	case errors.Is(err, prism.ErrUnsupportedProvider):
+		response.WriteError(w, requestID, response.CodeUnsupportedProvider,
+			"the requested provider is not supported")
+	case errors.Is(err, prism.ErrAuthRequired):
+		response.WriteError(w, requestID, response.CodeAuthRequired,
+			"authentication is required to access this repository")
+	case errors.Is(err, prism.ErrUpstreamFailure):
+		response.WriteError(w, requestID, response.CodeUpstreamFailure,
+			"upstream service is temporarily unavailable")
+	default:
+		response.WriteError(w, requestID, response.CodeInternalError,
+			"internal server error")
+	}
+}
